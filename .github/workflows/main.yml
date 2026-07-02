@@ -6,7 +6,9 @@ on:
       - '!gh-pages'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 jobs:
   build:
     name: Bundle and Publish Sources
@@ -14,7 +16,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [22.x] 
+        node-version: [22.x]
 
     steps:
       - name: Checkout Branch
@@ -30,18 +32,16 @@ jobs:
         run: echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
         id: extract_branch
 
-      - name: Checkout existing bundles
-        uses: actions/checkout@v4
-        continue-on-error: true
-        with:
-          ref: gh-pages
-          path: bundles
-
       - run: npm install
       - run: npm run bundle -- --folder=${{ steps.extract_branch.outputs.branch }}
 
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4.8.0
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          branch: gh-pages
-          folder: bundles
+          path: bundles
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
