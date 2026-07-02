@@ -28,7 +28,7 @@ import { parseDate } from '../templates/helper'
 const DOMAIN: string = 'https://poseidon-scans.net'
 
 export const PoseidonScansInfo: SourceInfo = {
-    version: "1.2",
+    version: "1.3",
     language: "FR",
     name: 'PoseidonScans',
     icon: 'icon.png',
@@ -540,16 +540,19 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
     /////    CLOUDFLARE BYPASS REQUEST PROVIDING   ///
     /////////////////////////////////////////////////
 
-    // Poseidon protects its HTML routes (/serie/..., /series, /serie/.../chapter/...)
-    // behind Cloudflare. Its JSON routes (/api/manga/lastchapters) are open, which is
-    // why the "latest releases" section loads without a bypass. But reading chapters
-    // needs the Cloudflare-protected /serie/{slug}/chapter/{id} page, so we MUST expose
-    // a Cloudflare bypass request. When the user gets a 403, Paperback opens this URL
-    // in its in-app WebView, solves the Cloudflare JS challenge, and injects the
-    // resulting cf_clearance cookie into the request manager for subsequent requests.
+    // Poseidon only protects SPECIFIC routes with Cloudflare: /series, /serie/{slug}
+    // and /serie/{slug}/chapter/{id}. The homepage (/) and the JSON API
+    // (/api/manga/lastchapters) are NOT protected, which is why "latest releases"
+    // loads fine. Reading chapters needs a Cloudflare-protected page, so we expose a
+    // bypass request pointed at a protected route (/series). When the user hits a 403,
+    // Paperback opens THIS url in its in-app WebView. Because /series is actually
+    // behind the Cloudflare JS challenge, the WebView solves it and the resulting
+    // cf_clearance cookie is injected into the request manager for every later request
+    // (including chapter pages). Pointing at the unprotected homepage would solve no
+    // challenge and leave chapter reading broken.
     async getCloudflareBypassRequestAsync(): Promise<Request> {
         return await App.createRequest({
-            url: `${this.base_url}`,
+            url: `${this.base_url}/series`,
             method: 'GET'
         })
     }
