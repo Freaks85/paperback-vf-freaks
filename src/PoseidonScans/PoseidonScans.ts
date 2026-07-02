@@ -27,13 +27,13 @@ import { parseDate } from '../templates/helper'
 const DOMAIN: string = 'https://poseidon-scans.net'
 
 export const PoseidonScansInfo: SourceInfo = {
-    version: "1.0",
+    version: "1.1",
     language: "FR",
     name: 'PoseidonScans',
     icon: 'icon.png',
     description: `Extension that pulls mangas from ${DOMAIN}`,
-    author: 'Moomooo95',
-    authorWebsite: 'https://github.com/Moomooo95',
+    author: 'Freaks85',
+    authorWebsite: 'https://github.com/Freaks85',
     contentRating: ContentRating.EVERYONE,
     websiteBaseURL: DOMAIN,
     sourceTags: [
@@ -244,29 +244,40 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
         if (!assembled) return chapters
 
         // Each chapter object in the flight stream looks roughly like:
-        // {"number":245,"title":"...","createdAt":"2026-..","isPremium":false,...}
-        const chapterRegex = /"number":\s*([0-9]+(?:\.[0-9]+)?)\s*,\s*"title":\s*("(?:[^"\\]|\\.)*"|null)(?:[^}]*?"createdAt":\s*"([^"]*)")?(?:[^}]*?"isPremium":\s*(true|false))?/g
+        // {"id":"cmqvaygeo9qtlynblbmqaei1h","number":129,"title":null,"isPremium":true,"createdAt":"2026-..",...}
+        // The CUID "id" is the real chapter identifier used in /serie/{slug}/chapter/{id} URLs;
+        // the "number" is only for display and sorting. The field order in the flight stream is
+        // not guaranteed, so we capture each field independently across the chapter object.
+        const chapterRegex = /\{[^{}]*?"id"\s*:\s*"(c[a-z0-9]+)"[^{}]*?\}/g
         let c: RegExpExecArray | null
         while ((c = chapterRegex.exec(assembled)) !== null) {
-            const num = Number(c[1])
+            const cuid = c[1]!
+            const block = c[0]
+
+            const numMatch = block.match(/"number"\s*:\s*([0-9]+(?:\.[0-9]+)?)/)
+            const num = numMatch ? Number(numMatch[1]) : NaN
+            const numStr = numMatch ? numMatch[1]!.replace(/\.0$/, '') : cuid
             if (seen.has(num)) continue
             seen.add(num)
 
             let title: string | undefined
-            if (c[2] && c[2] !== 'null') {
-                try { title = JSON.parse(c[2]) } catch { title = undefined }
+            const titleMatch = block.match(/"title"\s*:\s*("(?:[^"\\]|\\.)*"|null)/)
+            if (titleMatch && titleMatch[1] !== 'null') {
+                try { title = JSON.parse(titleMatch[1]!) } catch { title = undefined }
             }
-            const isPremium = c[4] === 'true'
-            const numStr = c[1]!.replace(/\.0$/, '')
+
+            const isPremiumMatch = block.match(/"isPremium"\s*:\s*(true|false)/)
+            const isPremium = isPremiumMatch?.[1] === 'true'
+
+            const dateMatch = block.match(/"createdAt"\s*:\s*"([^"]*)"/)
+            const date = dateMatch ? new Date(dateMatch[1]!) : new Date()
 
             const name = title && title.trim()
                 ? `Chapitre ${numStr} - ${title.trim()}`
                 : `Chapitre ${numStr}`
 
-            const date = c[3] ? new Date(c[3]) : new Date()
-
             chapters.push(App.createChapter({
-                id: numStr,
+                id: cuid,
                 name: (isPremium ? "🔒 " : "") + name,
                 langCode: this.lang_code,
                 chapNum: isNaN(num) ? 0 : num,
@@ -320,13 +331,47 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
 
         const response = await this.requestManager.schedule(request, 1)
         this.checkError(response.status)
-        const $ = this.cheerio.load(response.data as string)
+        const body = response.data as string
 
+        // Primary: scrape rendered <img> tags pointing at chapter pages. The site has
+        // historically served these from "/api/chapters/...", but the storage path may
+        // differ, so we match any image whose URL contains "/chapters/".
+        const $ = this.cheerio.load(body)
         const pages: string[] = []
-        $(`img[src*="/api/chapters/"]`).each((_: number, el: any) => {
-            const src = $(el).attr('src')
-            if (src) pages.push(src.startsWith('http') ? src : this.base_url + src)
+        const seen = new Set<string>()
+        $(`img[src*="/chapters/"]`).each((_: number, el: any) => {
+            let src = $(el).attr('src') ?? $(el).attr('data-src') ?? ''
+            if (!src || seen.has(src)) return
+            // skip tiny UI icons / favicons
+            const w = $(el).attr('width')
+            if (w && Number(w) > 0 && Number(w) < 50) return
+            seen.add(src)
+            pages.push(src.startsWith('http') ? src : this.base_url + src)
         })
+
+        // Fallback: extract page URLs from the Next.js flight payload when no <img>
+        // tags are present (e.g. images are loaded lazily from the RSC stream).
+        if (pages.length === 0) {
+            const pushRegex = /self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g
+            let assembled = ''
+            let m: RegExpExecArray | null
+            while ((m = pushRegex.exec(body)) !== null) {
+                try { assembled += JSON.parse(`"${m[1]}"`) } catch { assembled += m[1]! }
+            }
+            const imgRegex = /(https?:\/\/[^"'\s]+\/chapters\/[^"'\s]+\.(?:webp|jpe?g|png|avif))/gi
+            let r: RegExpExecArray | null
+            while ((r = imgRegex.exec(assembled)) !== null) {
+                if (!seen.has(r[1]!)) { seen.add(r[1]!); pages.push(r[1]!) }
+            }
+            // also relative paths in the flight stream
+            const relRegex = /(\/(?:api|storage)\/chapters\/[^"'\s]+\.(?:webp|jpe?g|png|avif))/gi
+            while ((r = relRegex.exec(assembled)) !== null) {
+                if (!seen.has(r[1]!)) {
+                    seen.add(r[1]!)
+                    pages.push(this.base_url + r[1]!)
+                }
+            }
+        }
 
         return App.createChapterDetails({
             id: chapterId,
