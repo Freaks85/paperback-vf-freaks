@@ -28,7 +28,7 @@ import { parseDate } from '../templates/helper'
 const DOMAIN: string = 'https://poseidon-scans.net'
 
 export const PoseidonScansInfo: SourceInfo = {
-    version: "1.5",
+    version: "1.6",
     language: "FR",
     name: 'PoseidonScans',
     icon: 'icon.png',
@@ -256,16 +256,20 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
         // The CUID "id" is the real chapter identifier used in /serie/{slug}/chapter/{id} URLs;
         // the "number" is only for display and sorting. The field order in the flight stream is
         // not guaranteed, so we capture each field independently across the chapter object.
+        // Each chapter object in the flight stream looks roughly like:
+        // {"id":"cm9im4xv1...","number":277,"title":null,"isPremium":false,"createdAt":"..."}
+        // IMPORTANT: the chapter URL on the site is /serie/{slug}/chapter/{NUMBER} (e.g.
+        // /chapter/277), NOT /chapter/{CUID}. So the chapter id Paperback stores and hands
+        // to getChapterDetails must be the NUMBER, not the CUID. Using the CUID yields a 404.
         const chapterRegex = /\{[^{}]*?"id"\s*:\s*"(c[a-z0-9]+)"[^{}]*?\}/g
         let c: RegExpExecArray | null
         while ((c = chapterRegex.exec(assembled)) !== null) {
-            const cuid = c[1]!
             const block = c[0]
 
             const numMatch = block.match(/"number"\s*:\s*([0-9]+(?:\.[0-9]+)?)/)
             const num = numMatch ? Number(numMatch[1]) : NaN
-            const numStr = numMatch ? numMatch[1]!.replace(/\.0$/, '') : cuid
-            if (seen.has(num)) continue
+            const numStr = numMatch ? numMatch[1]!.replace(/\.0$/, '').trim() : ''
+            if (!numStr || seen.has(num)) continue
             seen.add(num)
 
             let title: string | undefined
@@ -285,7 +289,7 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
                 : `Chapitre ${numStr}`
 
             chapters.push(App.createChapter({
-                id: cuid,
+                id: numStr,
                 name: (isPremium ? "🔒 " : "") + name,
                 langCode: this.lang_code,
                 chapNum: isNaN(num) ? 0 : num,
@@ -332,7 +336,11 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
-        const url = `${this.base_url}/serie/${mangaId}/chapter/${chapterId}`
+        // IDs coming from the parsed HTML/flight payload sometimes carry stray
+        // whitespace or newlines, which breaks the URL (-> 404). Trim defensively.
+        const cleanMangaId = mangaId.trim()
+        const cleanChapterId = chapterId.trim()
+        const url = `${this.base_url}/serie/${cleanMangaId}/chapter/${cleanChapterId}`
         const request = App.createRequest({
             url,
             method: 'GET'
