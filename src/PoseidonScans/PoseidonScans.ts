@@ -28,7 +28,7 @@ import { parseDate } from '../templates/helper'
 const DOMAIN: string = 'https://poseidon-scans.net'
 
 export const PoseidonScansInfo: SourceInfo = {
-    version: "1.4",
+    version: "1.5",
     language: "FR",
     name: 'PoseidonScans',
     icon: 'icon.png',
@@ -70,8 +70,13 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
                 request.headers = {
                     ...(request.headers ?? {}),
                     ...{
-                        'referer': `${this.base_url}/`,
-                        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+                        'referer': `${this.base_url}/`
+                        // Intentionally NOT setting a custom user-agent. The Cloudflare
+                        // cf_clearance cookie obtained in the in-app WebView is bound to
+                        // that WebView's user-agent. Forcing a different UA here (e.g. a
+                        // Chrome-on-Windows string) invalidates the cookie and re-triggers
+                        // the 403 on every request. Letting Paperback use its own UA keeps
+                        // the cookie valid across the bypass + chapter requests.
                     }
                 }
                 return request
@@ -130,13 +135,14 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
     }
 
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        const url = `${this.base_url}/serie/${mangaId}`
         const request = App.createRequest({
-            url: `${this.base_url}/serie/${mangaId}`,
+            url,
             method: 'GET'
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        this.checkError(response.status)
+        this.checkError(response.status, url)
         const $ = this.cheerio.load(response.data as string)
 
         const title = $('h1').first().text().trim()
