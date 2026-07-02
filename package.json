@@ -1,7 +1,7 @@
 {
-  "name": "moomooo95-extensions",
+  "name": "paperback-vf-freaks",
   "version": "1.0.0",
-  "repositoryName": "Moomooo95's Extensions",
+  "repositoryName": "Freaks VF Extensions",
   "description": "French sources for Paperback 0.8 (MangasOrigines, PoseidonScans, RaijinScans)",
   "scripts": {
     "bundle": "npx paperback bundle",

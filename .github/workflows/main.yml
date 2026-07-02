@@ -1,9 +1,10 @@
 name: Bundle and Publish Sources
-on: 
+on:
   push:
     branches:
       - '**'
-      - '!main'
+      - '!gh-pages'
+  workflow_dispatch:
 jobs:
   build:
     name: Bundle and Publish Sources
@@ -24,7 +25,7 @@ jobs:
 
       - name: Extract branch name
         shell: bash
-        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+        run: echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
         id: extract_branch
 
       - name: Checkout existing bundles
