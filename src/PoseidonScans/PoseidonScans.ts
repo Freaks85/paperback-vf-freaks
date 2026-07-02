@@ -28,7 +28,7 @@ import { parseDate } from '../templates/helper'
 const DOMAIN: string = 'https://poseidon-scans.net'
 
 export const PoseidonScansInfo: SourceInfo = {
-    version: "1.3",
+    version: "1.4",
     language: "FR",
     name: 'PoseidonScans',
     icon: 'icon.png',
@@ -201,13 +201,14 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
 
 
     async getChapters(mangaId: string): Promise<Chapter[]> {
+        const url = `${this.base_url}/serie/${mangaId}`
         const request = App.createRequest({
-            url: `${this.base_url}/serie/${mangaId}`,
+            url,
             method: 'GET'
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        this.checkError(response.status)
+        this.checkError(response.status, url)
         const body = response.data as string
 
         // Primary: parse the embedded Next.js RSC stream to get the FULL chapter list
@@ -219,7 +220,7 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
         }
 
         if (chapters.length === 0) {
-            throw new Error(`Couldn't find any chapters for mangaId: ${mangaId}!`)
+            throw new Error(`[Poseidon DEBUG] 0 chapitre trouvé pour ${mangaId}. HTTP était OK (${response.status}) mais le parsing RSC+HTML n'a rien matché. Body: ${body.slice(0, 200)}...`)
         }
 
         return chapters
@@ -325,13 +326,14 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
     }
 
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+        const url = `${this.base_url}/serie/${mangaId}/chapter/${chapterId}`
         const request = App.createRequest({
-            url: `${this.base_url}/serie/${mangaId}/chapter/${chapterId}`,
+            url,
             method: 'GET'
         })
 
         const response = await this.requestManager.schedule(request, 1)
-        this.checkError(response.status)
+        this.checkError(response.status, url)
         const body = response.data as string
 
         // Primary: scrape rendered <img> tags pointing at chapter pages. The site has
@@ -372,6 +374,10 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
                     pages.push(this.base_url + r[1]!)
                 }
             }
+        }
+
+        if (pages.length === 0) {
+            throw new Error(`[Poseidon DEBUG] 0 page trouvée pour le chapitre ${chapterId}. HTTP OK mais ni <img src*=/chapters/> ni images dans le flux RSC. Body: ${body.slice(0, 300)}...`)
         }
 
         return App.createChapterDetails({
@@ -563,9 +569,14 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
     /////////////////////////////////
 
 
-    checkError(status: any) {
+    // DEBUG build: surface the exact failing URL + HTTP status so we can see in the app
+    // what's happening instead of guessing. Temporary diagnostic.
+    checkError(status: any, url?: string) {
         if (status == 403) {
-            throw new Error("Contourner Cloudflare avant d'utiliser la source !")
+            throw new Error(`[Poseidon CF] 403 sur ${url ?? '(url?)'} — contourner Cloudflare via le bouton WebView de la source`)
+        }
+        if (status && status >= 400) {
+            throw new Error(`[Poseidon] HTTP ${status} sur ${url ?? '(url?)'}`)
         }
     }
 }
