@@ -16,7 +16,8 @@ import {
     ChapterProviding,
     SearchResultsProviding,
     HomePageSectionsProviding,
-    HomeSectionType
+    HomeSectionType,
+    CloudflareBypassRequestProviding
 } from '@paperback/types'
 
 import { CheerioAPI } from 'cheerio'
@@ -27,7 +28,7 @@ import { parseDate } from '../templates/helper'
 const DOMAIN: string = 'https://poseidon-scans.net'
 
 export const PoseidonScansInfo: SourceInfo = {
-    version: "1.1",
+    version: "1.2",
     language: "FR",
     name: 'PoseidonScans',
     icon: 'icon.png',
@@ -45,7 +46,7 @@ export const PoseidonScansInfo: SourceInfo = {
     intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.CLOUDFLARE_BYPASS_REQUIRED
 }
 
-export class PoseidonScans implements MangaProviding, ChapterProviding, SearchResultsProviding, HomePageSectionsProviding {
+export class PoseidonScans implements MangaProviding, ChapterProviding, SearchResultsProviding, HomePageSectionsProviding, CloudflareBypassRequestProviding {
 
     base_url: string = DOMAIN
     lang_code: string = PoseidonScansInfo.language!
@@ -531,6 +532,25 @@ export class PoseidonScans implements MangaProviding, ChapterProviding, SearchRe
         return App.createPagedResults({
             results: items,
             metadata: hasNext ? { page: page + 1 } : undefined
+        })
+    }
+
+
+    /////////////////////////////////////////////////
+    /////    CLOUDFLARE BYPASS REQUEST PROVIDING   ///
+    /////////////////////////////////////////////////
+
+    // Poseidon protects its HTML routes (/serie/..., /series, /serie/.../chapter/...)
+    // behind Cloudflare. Its JSON routes (/api/manga/lastchapters) are open, which is
+    // why the "latest releases" section loads without a bypass. But reading chapters
+    // needs the Cloudflare-protected /serie/{slug}/chapter/{id} page, so we MUST expose
+    // a Cloudflare bypass request. When the user gets a 403, Paperback opens this URL
+    // in its in-app WebView, solves the Cloudflare JS challenge, and injects the
+    // resulting cf_clearance cookie into the request manager for subsequent requests.
+    async getCloudflareBypassRequestAsync(): Promise<Request> {
+        return await App.createRequest({
+            url: `${this.base_url}`,
+            method: 'GET'
         })
     }
 
